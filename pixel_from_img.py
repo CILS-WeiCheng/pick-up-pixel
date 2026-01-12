@@ -8,10 +8,10 @@ HSV_RANGES = {
     'white':  [((0, 0, 220),    (180, 25, 255))],
     'blue':   [((100, 200, 100), (124, 255, 255))],
     'green':  [((35, 200, 100),  (85, 255, 255))],
-    'yellow': [((20, 200, 100),  (34, 255, 255))],
+    'yellow': [((20, 200, 200),  (34, 255, 255))],
     'black':  [((0, 0, 0),       (180, 255, 50))],
-    'red':    [((0, 200, 100),   (10, 255, 255)), 
-               ((156, 200, 100), (180, 255, 255))]
+    'red':    [((0, 200, 200),   (10, 255, 255)), 
+               ((156, 200, 200), (180, 255, 255))]
 }
 
 def extract_color_centers(video_path, frame_idx, target_color_name, min_area=10):
@@ -20,14 +20,14 @@ def extract_color_centers(video_path, frame_idx, target_color_name, min_area=10)
     """
     if target_color_name not in HSV_RANGES or not os.path.exists(video_path):
         print(f"錯誤：路徑不存在或顏色不支援。")
-        return None, None, None
+        return None, None, None, None
 
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened(): return None, None, None
+    if not cap.isOpened(): return None, None, None, None
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
     ret, frame = cap.read()
     cap.release()
-    if not ret: return None, None, None
+    if not ret: return None, None, None, None
 
     # HSV 轉換與遮罩處理
     hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -63,7 +63,7 @@ def extract_color_centers(video_path, frame_idx, target_color_name, min_area=10)
         cv2.putText(debug_img, str(i+1), (cX - 15, cY - 15), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-    return centers, frame, debug_img
+    return centers, frame, debug_img, dilated_mask
 
 def save_points_to_json(centers, output_path):
     """
@@ -92,14 +92,14 @@ def save_points_to_json(centers, output_path):
 
 # === 主程式 ===
 if __name__ == "__main__":
-    video_file = r"C:\Users\f1410\Desktop\vicon_chessbord_img\20251125棋盤格\New Patient Classification\New Patient\New Session\court_2.2129991.overlay.mp4"
-    output_json_file = "output_points.json" # 輸出檔案名稱
+    video_file = r"C:\Users\f1410\Desktop\vicon_chessbord_img\20251125棋盤格\New Patient Classification\New Patient\court_1.2129991.overlay_frames.mp4"
+    output_json_file = "test.json" # 輸出檔案名稱
     
-    target_frame = 168
+    target_frame = 241
     target_color = 'red'
     
     print(f"正在處理...")
-    centers, original, result_img = extract_color_centers(video_file, target_frame, target_color)
+    centers, original, result_img, mask_img = extract_color_centers(video_file, target_frame, target_color)
 
     if centers is not None and len(centers) > 0:
         print(f"共找到 {len(centers)} 個中心點。")
@@ -107,10 +107,32 @@ if __name__ == "__main__":
         # 1. 輸出 JSON
         save_points_to_json(centers, output_json_file)
         
-        # 2. 顯示結果
-        cv2.namedWindow("Final Result", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Final Result", 1024, 768)
-        cv2.imshow("Final Result", result_img)
+        # 2. 顯示結果 - 並排顯示標記結果和黑白遮罩
+        # 將遮罩轉換為 3 通道以便與彩色影像並排顯示
+        mask_3channel = cv2.cvtColor(mask_img, cv2.COLOR_GRAY2BGR)
+        
+        # 確保兩個影像高度一致（取較小的高度）
+        h1, w1 = result_img.shape[:2]
+        h2, w2 = mask_3channel.shape[:2]
+        min_h = min(h1, h2)
+        
+        # 調整影像大小以匹配高度
+        if h1 != min_h:
+            scale = min_h / h1
+            new_w1 = int(w1 * scale)
+            result_img = cv2.resize(result_img, (new_w1, min_h))
+        if h2 != min_h:
+            scale = min_h / h2
+            new_w2 = int(w2 * scale)
+            mask_3channel = cv2.resize(mask_3channel, (new_w2, min_h))
+        
+        # 並排顯示
+        combined_img = np.hstack([result_img, mask_3channel])
+        
+        window_name = "result (left: marked result | right: black and white mask)"
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, 1536, 768)
+        cv2.imshow(window_name, combined_img)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
     else:
